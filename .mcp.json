@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "piazza": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "piazza-mcp"],
+      "env": {
+        "PIAZZA_EMAIL": "${PIAZZA_EMAIL}",
+        "PIAZZA_PASSWORD": "${PIAZZA_PASSWORD}"
+      }
+    }
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "nr": 42,
+  "type": "question",
+  "folders": ["hw1", "logistics"],
+  "created": "2026-06-01T10:00:00Z",
+  "history": [
+    {
+      "subject": "When is HW1 due?",
+      "content": "<p>Is it due <b>Friday</b>? The <a href=\"/redirect/s3?bucket=uploads&prefix=hw1.pdf\">handout</a> says nothing.</p>",
+      "created": "2026-06-01T10:00:00Z",
+      "anon": "stud"
+    }
+  ],
+  "children": [
+    {
+      "type": "i_answer",
+      "history": [{"content": "<p>Yes, Friday at 11:59pm.</p>"}],
+      "tag_endorse": [{"id": "u1"}, {"id": "u2"}]
+    },
+    {
+      "type": "s_answer",
+      "history": [{"content": "<p>Pretty sure it is Friday.</p>"}]
+    },
+    {
+      "type": "followup",
+      "subject": "Will there be a late policy?",
+      "no_answer": 1,
+      "children": [
+        {"type": "feedback", "subject": "Yes, two late days."}
+      ]
+    }
+  ]
+}
