@@ -23,3 +23,19 @@ def resources_page_fixture() -> str:
     The link entry with "];" in its title is synthetic, to exercise parsing.
     """
     return (FIXTURES / "resources_page.html").read_text()
+
+
+@pytest.fixture
+def fake_session(monkeypatch, resources_page_fixture):
+    """Mock the Piazza session so the Resources page and downloads are local."""
+    from fakes import STATUS, FakeSession
+
+    from piazza_mcp import client as piazza_client
+
+    piazza_client.reset()
+    session = FakeSession(resources_page_fixture)
+    monkeypatch.setattr(piazza_client, "_piazza_instance", lambda: object())
+    monkeypatch.setattr(piazza_client, "user_status", lambda: STATUS)
+    monkeypatch.setattr(piazza_client, "http_session", lambda: session)
+    yield session
+    piazza_client.reset()

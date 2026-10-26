@@ -16,6 +16,7 @@ dependencies = [
 
 [project.scripts]
 piazza-mcp = "piazza_mcp:main"
+piazza = "piazza_mcp.cli:run"
 
 [build-system]
 requires = ["uv_build>=0.8.22,<0.9.0"]

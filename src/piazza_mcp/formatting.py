@@ -138,9 +138,23 @@ def format_post(post: dict) -> str:
     return "\n".join(lines)
 
 
+def class_label(cls: dict) -> str:
+    """One class as "Name (Term) | network_id: abc123"."""
+    name = cls.get("name") or cls.get("num") or "Unknown class"
+    term = cls.get("term")
+    network_id = cls.get("nid") or cls.get("id") or "?"
+    label = f"{name} ({term})" if term else str(name)
+    return f"{label} | network_id: {network_id}"
+
+
 def resource_title(resource: dict) -> str:
     """Display name of a resource: its subject, falling back to its content."""
     return (resource.get("subject") or resource.get("content") or "(untitled)").strip()
+
+
+def resource_section(resource: dict) -> str:
+    """Section a resource is listed under; unsectioned ones count as general."""
+    return (resource.get("config") or {}).get("section") or "general"
 
 
 def format_resources(resources: list[dict]) -> str:
@@ -149,7 +163,7 @@ def format_resources(resources: list[dict]) -> str:
         return "This class has no Resources."
     sections: dict[str, list[dict]] = {}
     for resource in resources:
-        section = (resource.get("config") or {}).get("section") or "general"
+        section = resource_section(resource)
         sections.setdefault(section, []).append(resource)
     lines = []
     for section, items in sections.items():

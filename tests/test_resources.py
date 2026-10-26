@@ -1,85 +1,15 @@
 """Resources page tools with the Piazza session mocked. No network."""
 
 import pytest
+from fakes import NID, PAGE_URL
+from fakes import FakeResponse as _FakeResponse
+from fakes import download_count as _download_count
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 
 from piazza_mcp import client as piazza_client
-from piazza_mcp import server
+from piazza_mcp import downloads
 from piazza_mcp.server import mcp
-
-NID = "msyx97enxo77kr"
-STATUS = {
-    "networks": [
-        {
-            "id": NID,
-            "school_ext": "purdue",
-            "term_key": "fall2026",
-            "short_number": "wlece36200",
-            "folders": ["hw1"],
-        }
-    ]
-}
-PAGE_URL = "https://piazza.com/purdue/fall2026/wlece36200/resources"
-
-
-class _FakeResponse:
-    def __init__(self, status_code=200, text="", chunks=(), content_type="application/pdf"):
-        self.status_code = status_code
-        self.text = text
-        self._chunks = list(chunks)
-        self.headers = {"Content-Type": content_type}
-
-    def iter_content(self, chunk_size=65_536):
-        for chunk in self._chunks:
-            if isinstance(chunk, Exception):
-                raise chunk
-            yield chunk
-
-    def close(self):
-        pass
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *exc):
-        return False
-
-
-class _FakeSession:
-    """Serves the Resources page and downloads. Queued pages/downloads are
-    returned first (one per request), then the defaults."""
-
-    def __init__(self, page_html, download=None):
-        self.page_html = page_html
-        self.download = download or _FakeResponse(chunks=[b"%PDF-1.4 ", b"body"])
-        self.queued_pages = []
-        self.queued_downloads = []
-        self.urls = []
-
-    def get(self, url, **kwargs):
-        self.urls.append(url)
-        if url == PAGE_URL:
-            html = self.queued_pages.pop(0) if self.queued_pages else self.page_html
-            return _FakeResponse(text=html)
-        if "/class_profile/get_resource/" in url:
-            return self.queued_downloads.pop(0) if self.queued_downloads else self.download
-        return _FakeResponse(status_code=404)
-
-
-def _download_count(session):
-    return sum("/class_profile/get_resource/" in url for url in session.urls)
-
-
-@pytest.fixture
-def fake_session(monkeypatch, resources_page_fixture):
-    piazza_client.reset()
-    session = _FakeSession(resources_page_fixture)
-    monkeypatch.setattr(piazza_client, "_piazza_instance", lambda: object())
-    monkeypatch.setattr(piazza_client, "user_status", lambda: STATUS)
-    monkeypatch.setattr(piazza_client, "http_session", lambda: session)
-    yield session
-    piazza_client.reset()
 
 
 async def _call(tool: str, args: dict) -> str:
@@ -211,7 +141,7 @@ async def test_download_resource_requires_absolute_dest(fake_session):
 
 
 async def test_download_resource_size_limit_leaves_no_file(fake_session, tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "RESOURCE_MAX_BYTES", 8)
+    monkeypatch.setattr(downloads, "RESOURCE_MAX_BYTES", 8)
     async with Client(mcp) as mcp_client:
         with pytest.raises(ToolError, match="size limit"):
             await mcp_client.call_tool(
@@ -271,7 +201,7 @@ async def test_download_resource_uses_normal_file_mode(fake_session, tmp_path):
         {"network_id": NID, "resource_id": "mvieovrvaql6o1", "dest_dir": str(tmp_path)},
     )
     mode = (tmp_path / "riscv.pdf").stat().st_mode & 0o777
-    assert mode == server._DOWNLOAD_FILE_MODE
+    assert mode == downloads.DOWNLOAD_FILE_MODE
     assert mode & 0o044  # group/other can read under a normal umask
 
 
@@ -313,7 +243,7 @@ def test_publish_never_clobbers_a_file_created_mid_download(tmp_path):
     target = tmp_path / "riscv.pdf"
     target.write_bytes(b"appeared during download")
     with pytest.raises(ToolError, match="already exists"):
-        server._publish(str(temp), target, overwrite=False)
+        downloads.publish(str(temp), target, overwrite=False)
     assert target.read_bytes() == b"appeared during download"
 
 
@@ -329,4 +259,4 @@ def test_publish_never_clobbers_a_file_created_mid_download(tmp_path):
     ],
 )
 def test_safe_filename(title, expected):
-    assert server._safe_filename(title, "application/pdf", "fallbackid") == expected
+    assert downloads.safe_filename(title, "application/pdf", "fallbackid") == expected
