@@ -36,6 +36,12 @@ export PIAZZA_PASSWORD="..."
 export PIAZZA_DOWNLOAD_ROOT="$HOME/Documents"   # optional, limits download_resource
 ```
 
+On macOS you can leave `PIAZZA_PASSWORD` unset and keep the password in the Keychain instead, so no config file holds it. When only `PIAZZA_EMAIL` is set, the server reads the password stored under service `piazza-mcp` for that email:
+
+```bash
+security add-generic-password -U -s piazza-mcp -a you@school.edu -w   # prompts for the password
+```
+
 ### Hermes agent
 
 Add to the `mcp_servers` section of your Hermes config on the machine running Hermes, then `/reload-mcp`:

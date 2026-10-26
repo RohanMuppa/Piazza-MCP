@@ -9,6 +9,8 @@ for expired sessions.
 import json
 import os
 import re
+import shutil
+import subprocess
 import threading
 import time
 
@@ -41,16 +43,44 @@ def reset():
         _cache.clear()
 
 
+KEYCHAIN_SERVICE = "piazza-mcp"
+
+
+def _keychain_password(email):
+    """Password saved in the macOS Keychain under service "piazza-mcp", if any.
+
+    Lets the MCP config hold no secret: store it once with
+    security add-generic-password -s piazza-mcp -a <email> -w
+    """
+    security = shutil.which("security") or "/usr/bin/security"
+    if not os.path.exists(security):
+        return None
+    try:
+        result = subprocess.run(
+            [security, "find-generic-password", "-s", KEYCHAIN_SERVICE, "-a", email, "-w"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    password = result.stdout.rstrip("\n")
+    return password if result.returncode == 0 and password else None
+
+
 def _piazza_instance():
     global _piazza
     with _lock:
         if _piazza is None:
             email = os.environ.get("PIAZZA_EMAIL")
             password = os.environ.get("PIAZZA_PASSWORD")
+            if email and not password:
+                password = _keychain_password(email)
             if not email or not password:
                 raise ToolError(
                     "PIAZZA_EMAIL and PIAZZA_PASSWORD environment variables must be "
-                    "set to your Piazza login credentials."
+                    "set to your Piazza login credentials (or save the password in "
+                    f"the macOS Keychain under service {KEYCHAIN_SERVICE!r})."
                 )
             piazza = Piazza()
             try:

@@ -98,6 +98,45 @@ def test_missing_credentials_raise_tool_error(monkeypatch):
         piazza_client.user_classes()
 
 
+def test_password_falls_back_to_keychain(monkeypatch):
+    import subprocess
+
+    monkeypatch.setenv("PIAZZA_EMAIL", "me@school.edu")
+    monkeypatch.delenv("PIAZZA_PASSWORD", raising=False)
+    calls = []
+
+    def fake_run(cmd, **kwargs):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0, stdout="s3cret\n", stderr="")
+
+    logins = []
+    monkeypatch.setattr(piazza_client.subprocess, "run", fake_run)
+    monkeypatch.setattr(piazza_client.os.path, "exists", lambda path: True)
+    monkeypatch.setattr(
+        piazza_client.Piazza, "user_login", lambda self, email, password: logins.append((email, password))
+    )
+    piazza_client.reset()
+    piazza_client._piazza_instance()
+    piazza_client.reset()
+    assert logins == [("me@school.edu", "s3cret")]
+    assert calls[0][1:] == ["find-generic-password", "-s", "piazza-mcp", "-a", "me@school.edu", "-w"]
+
+
+def test_keychain_miss_keeps_clear_error(monkeypatch):
+    import subprocess
+
+    monkeypatch.setenv("PIAZZA_EMAIL", "me@school.edu")
+    monkeypatch.delenv("PIAZZA_PASSWORD", raising=False)
+    monkeypatch.setattr(
+        piazza_client.subprocess,
+        "run",
+        lambda cmd, **kw: subprocess.CompletedProcess(cmd, 44, stdout="", stderr="not found"),
+    )
+    piazza_client.reset()
+    with pytest.raises(ToolError, match="Keychain"):
+        piazza_client._piazza_instance()
+
+
 class _FakeResponse:
     def __init__(self, chunks, content_type="application/pdf", status_code=200):
         self._chunks = chunks
