@@ -5,19 +5,14 @@ is given (optionally confined by PIAZZA_DOWNLOAD_ROOT).
 """
 
 import io
-import mimetypes
-import os
-import re
-import tempfile
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from urllib.parse import urlparse
 
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
 from pypdf import PdfReader
 
-from piazza_mcp import client, formatting
+from piazza_mcp import client, downloads, formatting
 
 mcp = FastMCP("piazza")
 
@@ -25,16 +20,6 @@ MAX_LIMIT = 50
 DIGEST_ITEMS_PER_CLASS = 25
 ATTACHMENT_MAX_CHARS = 50_000
 ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024
-RESOURCE_MAX_BYTES = 200 * 1024 * 1024
-FILENAME_MAX_CHARS = 200
-_UNSAFE_FILENAME_CHARS = re.compile(r"[^A-Za-z0-9._ ()-]+")
-# A real extension starts with a letter, so titles like "v1.2" still get one.
-_FILE_EXTENSION = re.compile(r"\.[A-Za-z][A-Za-z0-9]{0,5}")
-
-# mkstemp creates files as 0600; saved downloads should get normal permissions.
-_UMASK = os.umask(0)
-os.umask(_UMASK)
-_DOWNLOAD_FILE_MODE = 0o666 & ~_UMASK
 
 # Attachments are served from piazza.com and its content CDN/storage. Restrict
 # downloads to these hosts so a crafted link in a post cannot turn the
@@ -63,83 +48,6 @@ def _require_allowed_host(url: str) -> None:
         )
 
 
-def _safe_filename(name: str, content_type: str, fallback: str) -> str:
-    """A single path component built from a resource title.
-
-    Resource titles are instructor-written text, so strip anything that could
-    leave dest_dir (separators, leading dots) and add an extension from the
-    Content-Type when the title has none (Piazza titles look like "HW1_PDF").
-    """
-    cleaned = _UNSAFE_FILENAME_CHARS.sub("_", name)
-    cleaned = re.sub(r"\.{2,}", "_", cleaned).strip(" ._")
-    cleaned = cleaned[:FILENAME_MAX_CHARS].strip(" ._") or fallback
-    if not _FILE_EXTENSION.fullmatch(Path(cleaned).suffix):
-        extension = mimetypes.guess_extension(content_type.split(";")[0].strip())
-        if extension:
-            cleaned += extension
-    return cleaned
-
-
-def _resolve_dest_dir(dest_dir: str) -> Path:
-    """Absolute download folder, confined to PIAZZA_DOWNLOAD_ROOT when it is set."""
-    directory = Path(dest_dir).expanduser()
-    if not directory.is_absolute():
-        raise ToolError(f"dest_dir must be an absolute path, got {dest_dir!r}.")
-    directory = directory.resolve()
-    root_setting = os.environ.get("PIAZZA_DOWNLOAD_ROOT")
-    if root_setting:
-        root = Path(root_setting).expanduser().resolve()
-        if directory != root and root not in directory.parents:
-            raise ToolError(
-                f"dest_dir {directory} is outside PIAZZA_DOWNLOAD_ROOT ({root})."
-            )
-    return directory
-
-
-def _publish(temp_path: str, target: Path, overwrite: bool) -> None:
-    """Move a finished temp file into place without clobbering by default.
-
-    os.link fails if target already exists, so a file created mid-download
-    (or by a parallel call with the same title) is never replaced.
-    """
-    if overwrite:
-        os.replace(temp_path, target)
-        return
-    try:
-        os.link(temp_path, target)
-    except FileExistsError:
-        raise ToolError(
-            f"{target} already exists. Pass overwrite=true to replace it."
-        ) from None
-    except OSError:
-        # Some filesystems (exFAT, certain network shares) have no hard links.
-        if target.exists():
-            raise ToolError(
-                f"{target} already exists. Pass overwrite=true to replace it."
-            ) from None
-        os.replace(temp_path, target)
-        return
-    os.unlink(temp_path)
-
-
-def _find_resource(network_id: str, resource_id: str) -> dict:
-    for resource in client.resources(network_id):
-        if resource.get("id") == resource_id:
-            return resource
-    raise ToolError(
-        f"Resource {resource_id} was not found in class {network_id}. "
-        "Call list_resources to see valid resource ids."
-    )
-
-
-def _class_label(cls: dict) -> str:
-    name = cls.get("name") or cls.get("num") or "Unknown class"
-    term = cls.get("term")
-    network_id = cls.get("nid") or cls.get("id") or "?"
-    label = f"{name} ({term})" if term else str(name)
-    return f"{label} | network_id: {network_id}"
-
-
 @mcp.tool
 def list_classes() -> str:
     """List the Piazza classes you are enrolled in.
@@ -151,7 +59,7 @@ def list_classes() -> str:
     classes = client.user_classes()
     if not classes:
         return "No enrolled Piazza classes found."
-    return "\n".join(f"- {_class_label(cls)}" for cls in classes)
+    return "\n".join(f"- {formatting.class_label(cls)}" for cls in classes)
 
 
 @mcp.tool
@@ -294,51 +202,9 @@ def download_resource(
     filename is given. Existing files are kept unless overwrite is true.
     Link resources have no file to download.
     """
-    resource = _find_resource(network_id, resource_id)
-    config = resource.get("config") or {}
-    if (config.get("resource_type") or "file") != "file":
-        link = (resource.get("content") or "").strip()
-        raise ToolError(f"Resource {resource_id} is a link, not a file: {link}")
-    directory = _resolve_dest_dir(dest_dir)
-
-    response = client.open_resource_download(network_id, resource_id)
-    with response:
-        content_type = response.headers.get("Content-Type", "")
-        name = _safe_filename(
-            filename or formatting.resource_title(resource), content_type, resource_id
-        )
-        target = directory / name
-        if target.exists() and not overwrite:
-            raise ToolError(f"{target} already exists. Pass overwrite=true to replace it.")
-
-        # Stream into a temp file in the same folder, then publish it, so a
-        # failed or oversized download never leaves a partial file behind.
-        temp_path = None
-        total = 0
-        try:
-            directory.mkdir(parents=True, exist_ok=True)
-            fd, temp_path = tempfile.mkstemp(dir=directory, prefix=".piazza-", suffix=".part")
-            with os.fdopen(fd, "wb") as handle:
-                os.fchmod(handle.fileno(), _DOWNLOAD_FILE_MODE)
-                for chunk in response.iter_content(chunk_size=65_536):
-                    total += len(chunk)
-                    if total > RESOURCE_MAX_BYTES:
-                        raise ToolError(
-                            "Resource exceeds the "
-                            f"{RESOURCE_MAX_BYTES // (1024 * 1024)} MB size limit."
-                        )
-                    handle.write(chunk)
-            _publish(temp_path, target, overwrite)
-        except BaseException as exc:
-            if temp_path:
-                Path(temp_path).unlink(missing_ok=True)
-            if isinstance(exc, Exception) and not isinstance(exc, ToolError):
-                raise ToolError(f"Could not save {target}: {exc}") from exc
-            raise
-
-    size_kb = max(1, round(total / 1024))
-    kind = content_type.split(";")[0].strip() or "unknown type"
-    return f"Saved {formatting.resource_title(resource)} to {target} ({size_kb} KB, {kind})"
+    return downloads.save_resource(
+        network_id, resource_id, dest_dir, filename=filename, overwrite=overwrite
+    ).describe()
 
 
 @mcp.tool
@@ -366,7 +232,7 @@ def get_daily_digest(hours: int = 24, unread_only: bool = False) -> str:
             and modified >= cutoff
         ]
         truncated = len(recent) > DIGEST_ITEMS_PER_CLASS
-        sections.append((_class_label(cls), recent[:DIGEST_ITEMS_PER_CLASS], truncated))
+        sections.append((formatting.class_label(cls), recent[:DIGEST_ITEMS_PER_CLASS], truncated))
     return formatting.format_digest(sections, hours)
 
 

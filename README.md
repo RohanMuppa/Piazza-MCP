@@ -73,6 +73,22 @@ This repo ships a project-scope `.mcp.json` that runs the server via `uv run pia
 claude mcp add --scope user --env PIAZZA_EMAIL=you@school.edu --env PIAZZA_PASSWORD=... piazza -- uv run --directory /path/to/Piazza-MCP piazza-mcp
 ```
 
+## CLI
+
+The same package installs a `piazza` command for jobs that need no model in the loop, such as syncing a class's Resources into a folder on a schedule. It reads the same `PIAZZA_EMAIL`, `PIAZZA_PASSWORD`, and optional `PIAZZA_DOWNLOAD_ROOT` variables.
+
+```bash
+uv tool install git+https://github.com/RohanMuppa/Piazza-MCP   # puts `piazza` on your PATH
+
+piazza classes                                    # network ids
+piazza resources list <network_id>
+piazza resources download <network_id> --dest ~/school/ece362          # every file
+piazza resources download <network_id> --dest ~/school/ece362 --section homework
+piazza resources download <network_id> <resource_id> --dest . --overwrite
+```
+
+`download` with no resource ids fetches every file, skips links and files that already exist (so re-running only picks up new ones), keeps going past individual failures, and exits 1 if any file failed. Relative `--dest` paths resolve against the current directory. `--section` takes a section name exactly as `resources list` prints it (unsectioned resources are `general`); an unknown section is an error rather than a silent no-op. Resources whose titles would save to the same file (`Notes`, `notes`, `Notes.pdf`) get their resource id appended (`Notes-<id>.pdf`), and the name is the same on every run so re-syncs still recognize them.
+
 ## Development
 
 ```bash
@@ -81,4 +97,4 @@ uv run pytest                                   # unit tests, no network
 npx @modelcontextprotocol/inspector uv run piazza-mcp   # interactive tool inspector
 ```
 
-Layout: `src/piazza_mcp/client.py` owns all Piazza access (lazy login, 60s TTL cache, one re-login retry on expired sessions), `formatting.py` renders Piazza JSON to compact markdown, `server.py` defines the FastMCP tools.
+Layout: `src/piazza_mcp/client.py` owns all Piazza access (lazy login, 60s TTL cache, one re-login retry on expired sessions), `formatting.py` renders Piazza JSON to compact markdown, `downloads.py` writes Resources files to disk (shared by both front ends), `server.py` defines the FastMCP tools, and `cli.py` is the `piazza` command.

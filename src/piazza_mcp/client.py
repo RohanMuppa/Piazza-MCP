@@ -12,6 +12,8 @@ import re
 import threading
 import time
 
+# requests ships with piazza-api, whose session this module drives.
+import requests
 from fastmcp.exceptions import ToolError
 from piazza_api import Piazza
 from piazza_api.exceptions import AuthenticationError, RequestError
@@ -55,6 +57,8 @@ def _piazza_instance():
                 piazza.user_login(email=email, password=password)
             except AuthenticationError as exc:
                 raise ToolError(f"Piazza login failed: {exc}") from exc
+            except requests.RequestException as exc:
+                raise ToolError(f"Could not reach Piazza to log in: {exc}") from exc
             _piazza = piazza
         return _piazza
 
@@ -65,12 +69,16 @@ def _call(fn):
         return fn(_piazza_instance())
     except ToolError:
         raise
+    except requests.RequestException as exc:
+        raise ToolError(f"Could not reach Piazza: {exc}") from exc
     except (RequestError, AuthenticationError):
         reset()
         try:
             return fn(_piazza_instance())
         except ToolError:
             raise
+        except requests.RequestException as exc:
+            raise ToolError(f"Could not reach Piazza: {exc}") from exc
         except (RequestError, AuthenticationError) as exc:
             raise ToolError(f"Piazza request failed: {exc}") from exc
 
