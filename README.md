@@ -14,9 +14,17 @@ Piazza has no official API. This server uses [piazza-api](https://github.com/hfa
 | `search_posts` | Keyword search within one class |
 | `get_post` | Full thread: question, answers, endorsements, followups |
 | `read_attachment` | Extract text from PDF or text files linked in posts |
+| `list_resources` | Files and links on a class's Resources page, grouped by section |
+| `download_resource` | Save one Resources file to a local folder |
 | `get_daily_digest` | Cross-class summary of all activity in the last N hours |
 
-All tools are read-only. Nothing is ever posted, edited, or marked read.
+All tools are read-only on Piazza. Nothing is ever posted, edited, or marked read. `download_resource` is the only tool that writes, and only to the local `dest_dir` you pass it: it never overwrites an existing file unless `overwrite` is true, and a failed or oversized (over 200 MB) download leaves no partial file behind. Set `PIAZZA_DOWNLOAD_ROOT` to confine downloads to one folder tree (recommended, since the agent chooses `dest_dir`).
+
+### Resources
+
+Piazza has no RPC method for the Resources page. `list_resources` loads the class profile page (`https://piazza.com/<school>/<term>/<course>/resources`, built from your user status) and parses the `RESOURCES` list Piazza embeds in it. `download_resource` fetches `/class_profile/get_resource/<network_id>/<resource_id>`. Files are named after the resource title, with an extension added from the file type when the title has none (`Homework_1_PDF` becomes `Homework_1_PDF.pdf`). An expired session (HTTP 401/403, or Piazza's login page served in place of the file) triggers one re-login retry. This scrapes page HTML, so it is more likely than the RPC tools to break if Piazza changes its site.
+
+To grab a whole class: call `list_resources`, then `download_resource` for each `resource_id` with the same absolute `dest_dir`.
 
 ## Setup
 
@@ -25,6 +33,7 @@ Requires [uv](https://docs.astral.sh/uv/) and a Piazza-native email/password log
 ```bash
 export PIAZZA_EMAIL="you@school.edu"
 export PIAZZA_PASSWORD="..."
+export PIAZZA_DOWNLOAD_ROOT="$HOME/Documents"   # optional, limits download_resource
 ```
 
 ### Hermes agent

@@ -138,6 +138,37 @@ def format_post(post: dict) -> str:
     return "\n".join(lines)
 
 
+def resource_title(resource: dict) -> str:
+    """Display name of a resource: its subject, falling back to its content."""
+    return (resource.get("subject") or resource.get("content") or "(untitled)").strip()
+
+
+def format_resources(resources: list[dict]) -> str:
+    """Class Resources grouped by section, one bullet per file or link."""
+    if not resources:
+        return "This class has no Resources."
+    sections: dict[str, list[dict]] = {}
+    for resource in resources:
+        section = (resource.get("config") or {}).get("section") or "general"
+        sections.setdefault(section, []).append(resource)
+    lines = []
+    for section, items in sections.items():
+        if lines:
+            lines.append("")
+        lines.append(f"## {section}")
+        for resource in items:
+            config = resource.get("config") or {}
+            kind = config.get("resource_type") or "file"
+            line = f"- **{resource_title(resource)}** [{kind}] resource_id: {resource.get('id', '?')}"
+            updated = resource.get("updated") or resource.get("created")
+            if updated:
+                line += f" | updated {updated}"
+            if kind == "link" and resource.get("content"):
+                line += f"\n  {resource['content'].strip()}"
+            lines.append(line)
+    return "\n".join(lines)
+
+
 def format_digest(sections: list[tuple[str, list[dict], bool]], hours: int) -> str:
     """Cross-class digest. sections is (class_label, items, truncated)."""
     lines = [f"# Piazza digest: last {hours} hours"]
