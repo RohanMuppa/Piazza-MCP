@@ -73,10 +73,37 @@ The server cannot push on a schedule; scheduling lives in the agent. Give Hermes
 
 ### Claude Code
 
-This repo ships a project-scope `.mcp.json` that runs the server via `uv run piazza-mcp` and reads `PIAZZA_EMAIL` / `PIAZZA_PASSWORD` from your shell. Or register manually:
+Paste this prompt into Claude Code to have it install uv, check your login, and register the server. You enter your password yourself (into the Keychain on macOS); it never goes into the chat.
+
+```text
+Set up the Piazza MCP server (https://github.com/RohanMuppa/Piazza-MCP) for me in Claude Code. It is a read-only server that lets you browse my Piazza classes, posts, and Resources files. Do every step you can yourself, and stop only for the things marked as mine.
+
+1. Check that `uv` is installed (`uv --version`). If it is missing, install it: on macOS or Linux run `curl -LsSf https://astral.sh/uv/install.sh | sh`, on Windows run `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`. Then make sure `uvx` is on my PATH.
+
+2. Ask me two things in one message:
+   - My Piazza login email.
+   - Whether to load the server in this project only (recommended: every session that loads it starts its own server process, so loading it everywhere costs memory in sessions that never use it) or in every project.
+
+3. My password is mine to enter. Never ask me to type it into this chat and never write it to a file.
+   - On macOS: tell me to open a separate Terminal window and run `security add-generic-password -U -s piazza-mcp -a <my email> -w`, which prompts me for the password and stores it in the Keychain. The server reads it from there. Wait until I say it is done.
+   - On Linux or Windows: tell me to add `PIAZZA_PASSWORD` to my shell profile myself and start Claude Code again from a shell that has it. Wait until I say it is done.
+   - If I only ever log in to Piazza through my school (SSO), tell me to set a Piazza password first in Piazza's account settings.
+
+4. Check the login before registering anything, using my email:
+   `PIAZZA_EMAIL=<my email> uvx --from git+https://github.com/RohanMuppa/Piazza-MCP piazza classes`
+   It should list my classes. If it fails with a login error, tell me what it said and help me fix the password step. Do not continue until this works.
+
+5. Register the server, using `local` scope for this project only or `user` scope for every project, as I chose. The server name must come before the `-e` flag:
+   `claude mcp add piazza --scope <local|user> -e PIAZZA_EMAIL=<my email> -e PIAZZA_DOWNLOAD_ROOT=<folder> -- uvx --from git+https://github.com/RohanMuppa/Piazza-MCP piazza-mcp`
+   For `<folder>`, use `~/Documents/Piazza` written out as an absolute path, and create it. It keeps downloaded Piazza files inside that one folder.
+
+6. Run `claude mcp list` and confirm `piazza` shows as Connected. Then tell me to start a new session, since tools load when a session starts, and give me two things to try there: "list my Piazza classes" and "what happened on Piazza in the last 24 hours".
+```
+
+To set it up by hand instead: this repo ships a project-scope `.mcp.json` that runs the server via `uv run piazza-mcp` and reads `PIAZZA_EMAIL` / `PIAZZA_PASSWORD` from your shell. Or register it yourself. The server name must come before `-e`, because `-e` takes every argument after it until the next flag:
 
 ```bash
-claude mcp add --scope user --env PIAZZA_EMAIL=you@school.edu --env PIAZZA_PASSWORD=... piazza -- uv run --directory /path/to/Piazza-MCP piazza-mcp
+claude mcp add piazza --scope user -e PIAZZA_EMAIL=you@school.edu -e PIAZZA_PASSWORD=... -- uv run --directory /path/to/Piazza-MCP piazza-mcp
 ```
 
 ## CLI
